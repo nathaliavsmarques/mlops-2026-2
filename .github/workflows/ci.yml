@@ -97,6 +97,7 @@ jobs:
     # Os segredos são cadastrados em Settings > Secrets and variables > Actions.
     #
     env:
+      WANDB_BASE_URL: https://api.forge.coreweave.com
       WANDB_API_KEY: ${{ secrets.WANDB_API_KEY }}
       WANDB_PROJECT: ${{ secrets.WANDB_PROJECT }}
       WANDB_MODELS: ${{ secrets.WANDB_MODELS }}

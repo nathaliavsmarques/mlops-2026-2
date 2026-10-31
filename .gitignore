@@ -7,3 +7,6 @@ models
 .coverage
 htmlcov/
 .venv/
+
+# Logs locais de instalação
+instalacao_pip.log

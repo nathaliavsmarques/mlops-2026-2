@@ -11,6 +11,7 @@ services:
     ports:
     - "8000:8000"
     environment:
+    - WANDB_BASE_URL=https://api.forge.coreweave.com
     - WANDB_API_KEY=${WANDB_API_KEY}
     - WANDB_PROJECT=${WANDB_PROJECT}
     - WANDB_MODELS=${WANDB_MODELS}
