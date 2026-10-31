@@ -13,8 +13,6 @@ name: CI - Build e Testes do Classificador
 # - push em main e pull request para main
 # - workflow_dispatch: botão "Run workflow" na aba Actions
 on:
-  push:
-    branches: [main]
   pull_request:
     branches: [main]
   workflow_dispatch: # permite rodar o CI clicando em "Run workflow" na aba Actions
@@ -90,7 +88,7 @@ jobs:
   smoke:
     name: Smoke test (docker compose + e2e)
     needs: test   # só roda se o job "test" passou
-    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch' || github.event_name == 'workflow_call'
     runs-on: ubuntu-latest
     timeout-minutes: 40
     # O docker-compose.yml lê estas variáveis do ambiente do runner.
