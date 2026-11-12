@@ -22,7 +22,7 @@ def test_raiz_responde_ok():
     assert resposta.status_code == 200
     assert resposta.json() == {
         "status": "ok",
-        "version": "0.1.0"
+        "version": "dev"
     }
 
 
