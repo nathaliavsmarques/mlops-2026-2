@@ -1,30 +1,46 @@
 
-name: CD - Publicar imagem Docker
+
+name: CD - Deploy Azure Container Apps
 
 on:
   push:
-    branches: [main]
+    tags:
+      - 'v*'
   workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Versão da imagem a implantar (ex.: v1.0.1)'
+        required: true
+        type: string
 
 permissions:
   contents: read
-  packages: write
 
 concurrency:
   group: cd-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
+
+env:
+  IMAGE: ghcr.io/${{ github.repository }}
+  APP_NAME: intent-clf-nathalia
+  RESOURCE_GROUP: mlops-2026-2
 
 jobs:
   ci:
     name: Validar aplicação
+    if: github.event_name == 'push'
     uses: ./.github/workflows/ci.yml
     secrets: inherit
 
-  publish:
+  release:
     name: Publicar imagem no GHCR
     needs: ci
-    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      packages: write
 
     steps:
       - name: Checkout do código
@@ -37,20 +53,103 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Preparar metadados da imagem
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ghcr.io/${{ github.repository }}
-          tags: |
-            type=sha
-            type=raw,value=latest,enable={{is_default_branch}}
-
       - name: Construir e publicar imagem
         uses: docker/build-push-action@v6
         with:
           context: .
           file: ./Dockerfile
           push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
+          tags: ghcr.io/${{ github.repository }}:${{ github.ref_name }}
+
+  deploy:
+    name: Deploy no Azure Container Apps
+    needs: [ci, release]
+    if: ${{ !failure() && !cancelled() }}
+    runs-on: ubuntu-latest
+    environment: production
+
+    permissions:
+      contents: read
+      id-token: write
+
+    env:
+      TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+
+    steps:
+      - name: Validar tag informada
+        run: |
+          if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Tag inválida: $TAG"
+            exit 1
+          fi
+
+      - name: Login no Azure com OIDC
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Atualizar Azure Container App
+        uses: azure/CLI@v2
+        with:
+          azcliversion: latest
+          inlineScript: |
+            az containerapp update \
+              --name "$APP_NAME" \
+              --resource-group "$RESOURCE_GROUP" \
+              --image "$IMAGE:$TAG" \
+              --set-env-vars "APP_VERSION=$TAG"
+
+  verify:
+    name: Verificar implantação
+    needs: deploy
+    if: ${{ !failure() && !cancelled() }}
+    runs-on: ubuntu-latest
+
+    env:
+      TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+      APP_URL: ${{ vars.APP_URL }}
+
+    steps:
+      - name: Verificar versão da API
+        run: |
+          set -euo pipefail
+
+          RESPONSE=$(curl -fsS "$APP_URL/")
+          echo "Resposta da API:"
+          echo "$RESPONSE"
+
+          STATUS=$(echo "$RESPONSE" | jq -r '.status')
+          VERSION=$(echo "$RESPONSE" | jq -r '.version')
+
+          if [ "$STATUS" != "ok" ]; then
+            echo "Status inesperado: $STATUS"
+            exit 1
+          fi
+
+          if [ "$VERSION" != "$TAG" ]; then
+            echo "Versão esperada: $TAG"
+            echo "Versão encontrada: $VERSION"
+            exit 1
+          fi
+
+          echo "API respondendo com a versão correta: $VERSION"
+
+      - name: Testar endpoint de previsões
+        run: |
+          set -euo pipefail
+
+          RESPONSE=$(curl -fsS \
+            -X POST "$APP_URL/predictions" \
+            -H "Content-Type: application/json" \
+            -d '{"text":"Gostaria de cancelar minha assinatura."}')
+
+          echo "Resposta do endpoint /predictions:"
+          echo "$RESPONSE"
+
+          echo "$RESPONSE" | jq -e \
+            '.message.text == "Gostaria de cancelar minha assinatura."' \
+            > /dev/null
+
+          echo "Endpoint de previsões funcionando corretamente."
