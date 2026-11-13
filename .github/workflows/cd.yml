@@ -64,7 +64,19 @@ jobs:
   deploy:
     name: Deploy no Azure Container Apps
     needs: [ci, release]
-    if: ${{ !failure() && !cancelled() }}
+    if: >-
+      ${{
+        always() &&
+        !cancelled() &&
+        (
+          (
+            github.event_name == 'push' &&
+            needs.ci.result == 'success' &&
+            needs.release.result == 'success'
+          ) ||
+          github.event_name == 'workflow_dispatch'
+        )
+      }}
     runs-on: ubuntu-latest
     environment: production
 
